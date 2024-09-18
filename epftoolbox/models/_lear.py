@@ -62,18 +62,21 @@ class LEAR(object):
         """
 
         # # Applying Invariant, aka asinh-median transformation to the prices
-        [Ytrain], self.scalerY = scaling([Ytrain], 'Invariant')
 
-        # # Rescaling all inputs except dummies (7 last features)
+        # La trasformazione di tipo 'Invariant' è asinh o log -> Riscala tutti i valori di output
+        [Ytrain], self.scalerY = scaling([Ytrain], 'Invariant') 
+
+        # # Rescaling all inputs except dummies (7 last features) -> Le ultime 7 sono i giorni della settimana
         [Xtrain_no_dummies], self.scalerX = scaling([Xtrain[:, :-7]], 'Invariant')
         Xtrain[:, :-7] = Xtrain_no_dummies
 
         self.models = {}
+        # Per ogni ora si allena un modello differente per fare le previsioni
         for h in range(24):
 
-            # Estimating lambda hyperparameter using LARS
-            param_model = LassoLarsIC(criterion='aic', max_iter=2500)
-            param = param_model.fit(Xtrain, Ytrain[:, h]).alpha_
+            # Estimating lambda hyperparameter using LARS 
+            param_model = LassoLarsIC(criterion='aic', max_iter=2500) # secondo il criterio informativo di Akaike
+            param = param_model.fit(Xtrain, Ytrain[:, h]).alpha_ 
 
             # Re-calibrating LEAR using standard LASSO estimation technique
             model = Lasso(max_iter=2500, alpha=param)
@@ -95,10 +98,10 @@ class LEAR(object):
             An array containing the predictions.
         """
 
-        # Predefining predicted prices
+        # Predefining predicted prices -> vettore inizializzato in questo modo per fare le previsioni delle prossime 24 ore
         Yp = np.zeros(24)
 
-        # # Rescaling all inputs except dummies (7 last features)
+        # # Rescaling all inputs except dummies (7 last features) -> utilizza il rescaler creato in fase di training per trasformare i dati di test
         X_no_dummies = self.scalerX.transform(X[:, :-7])
         X[:, :-7] = X_no_dummies
 
@@ -108,6 +111,7 @@ class LEAR(object):
             # Predicting test dataset and saving
             Yp[h] = self.models[h].predict(X)
         
+        # Ritorna al dominio originale applicando una trasformazione inversa
         Yp = self.scalerY.inverse_transform(Yp.reshape(1, -1))
 
         return Yp
@@ -432,3 +436,43 @@ def evaluate_lear_in_test_dataset(path_datasets_folder=os.path.join('.', 'datase
         forecast.to_csv(forecast_file_path)
 
     return forecast
+
+
+####################################################################
+
+def predict_days(self, X):
+    """Function that makes predictions for multiple days.
+    
+    Parameters
+    ----------
+    X : numpy.array
+        Input of the model. Shape [n_days, n_features]
+    
+    Returns
+    -------
+    numpy.array
+        An array containing predictions. Shape [n_days, 24]
+    """
+    
+    # Number of days to predict
+    n_days = X.shape[0]
+
+    # Predefinire un array per le previsioni (n_days, 24)
+    Yp = np.zeros((n_days, 24))
+
+    # Loop per ogni giorno
+    for day in range(n_days):
+        X_day = X[day, :].reshape(1, -1)  # Input per un singolo giorno
+
+        # Rescaling inputs (eccetto dummies, le ultime 7 features)
+        X_no_dummies = self.scalerX.transform(X_day[:, :-7])
+        X_day[:, :-7] = X_no_dummies
+
+        # Predicting prices per ogni ora (24 ore)
+        for h in range(24):
+            Yp[day, h] = self.models[h].predict(X_day)
+
+    # Rescaling delle previsioni
+    Yp = self.scalerY.inverse_transform(Yp)
+
+    return Yp
