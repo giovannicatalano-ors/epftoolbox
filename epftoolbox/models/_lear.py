@@ -115,6 +115,43 @@ class LEAR(object):
         Yp = self.scalerY.inverse_transform(Yp.reshape(1, -1))
 
         return Yp
+    
+    def predict_days(self, X):
+        """Function that makes predictions for multiple days.
+    
+            Parameters
+        ----------
+        X : numpy.array
+        Input of the model. Shape [n_days, n_features]
+    
+        Returns
+        -------
+        numpy.array
+        An array containing predictions. Shape [n_days, 24]
+        """
+    
+        # Number of days to predict
+        n_days = X.shape[0]
+
+        # Predefinire un array per le previsioni (n_days, 24)
+        Yp = np.zeros((n_days, 24))
+
+        # Loop per ogni giorno
+        for day in range(n_days):
+            X_day = X[day, :].reshape(1, -1)  # Input per un singolo giorno
+
+            # Rescaling inputs (eccetto dummies, le ultime 7 features)
+            X_no_dummies = self.scalerX.transform(X_day[:, :-7])
+            X_day[:, :-7] = X_no_dummies
+
+            # Predicting prices per ogni ora (24 ore)
+            for h in range(24):
+                Yp[day, h] = self.models[h].predict(X_day)
+
+        # Rescaling delle previsioni
+        Yp = self.scalerY.inverse_transform(Yp)
+
+        return Yp
 
     def recalibrate_predict(self, Xtrain, Ytrain, Xtest):
         """Function that first recalibrates the LEAR model and then makes a prediction.
@@ -438,41 +475,4 @@ def evaluate_lear_in_test_dataset(path_datasets_folder=os.path.join('.', 'datase
     return forecast
 
 
-####################################################################
 
-def predict_days(self, X):
-    """Function that makes predictions for multiple days.
-    
-    Parameters
-    ----------
-    X : numpy.array
-        Input of the model. Shape [n_days, n_features]
-    
-    Returns
-    -------
-    numpy.array
-        An array containing predictions. Shape [n_days, 24]
-    """
-    
-    # Number of days to predict
-    n_days = X.shape[0]
-
-    # Predefinire un array per le previsioni (n_days, 24)
-    Yp = np.zeros((n_days, 24))
-
-    # Loop per ogni giorno
-    for day in range(n_days):
-        X_day = X[day, :].reshape(1, -1)  # Input per un singolo giorno
-
-        # Rescaling inputs (eccetto dummies, le ultime 7 features)
-        X_no_dummies = self.scalerX.transform(X_day[:, :-7])
-        X_day[:, :-7] = X_no_dummies
-
-        # Predicting prices per ogni ora (24 ore)
-        for h in range(24):
-            Yp[day, h] = self.models[h].predict(X_day)
-
-    # Rescaling delle previsioni
-    Yp = self.scalerY.inverse_transform(Yp)
-
-    return Yp
