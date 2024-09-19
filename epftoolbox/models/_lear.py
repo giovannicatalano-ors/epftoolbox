@@ -143,7 +143,7 @@ class LEAR(object):
             # Rescaling inputs (eccetto dummies, le ultime 7 features)
             X_no_dummies = self.scalerX.transform(X_day[:, :-7])
             X_day[:, :-7] = X_no_dummies
-
+            
             # Predicting prices per ogni ora (24 ore)
             for h in range(24):
                 Yp[day, h] = self.models[h].predict(X_day)
