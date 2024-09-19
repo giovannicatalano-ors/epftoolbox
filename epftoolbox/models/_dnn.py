@@ -552,7 +552,7 @@ class DNN(object):
         # Predicting the current date using a recalibrated DNN
         Yp = self.model.predict(X).squeeze()
         if self.best_hyperparameters['scaleY'] in ['Norm', 'Norm1', 'Std', 'Median', 'Invariant']:
-            Yp = self.scaler.inverse_transform(Yp.reshape(1, -1)).squeeze()
+            Yp = self.scaler.inverse_transform(Yp)
 
         return Yp
 
