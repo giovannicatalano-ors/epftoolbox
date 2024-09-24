@@ -16,6 +16,7 @@ Download the repository and navigate into the folder
 $ git clone https://github.com/jeslago/epftoolbox.git
 $ cd epftoolbox
 ```
+
 [Optional] Create an environment to avoid conflicts, e.g. using [conda](https://docs.conda.io/en/latest/):
 ```bash
 conda create --name epftoolbox python=3.10
