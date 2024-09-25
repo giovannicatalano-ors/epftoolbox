@@ -24,7 +24,9 @@ import tensorflow.keras.backend as K
 from epftoolbox.evaluation import MAE, sMAPE
 from epftoolbox.data import scaling
 from epftoolbox.data import read_data
-
+import holidays
+import covid19dh
+from sklearn.preprocessing import StandardScaler
 
 class DNNModel(object):
 
@@ -1112,7 +1114,6 @@ def _build_and_split_XYs_customized(dfTrain, features, shuffle_train, n_exogenou
     # Aggiungiamo le holidays
     if features['In: Holiday']:
             
-            import holidays
 
             holidays_it = holidays.IT(years = [2020, 2021, 2022, 2023, 2024])
 
@@ -1127,7 +1128,6 @@ def _build_and_split_XYs_customized(dfTrain, features, shuffle_train, n_exogenou
 
     if features['In: Covid']:
 
-        import covid19dh
 
         data, _ = covid19dh.covid19(country="Italy", verbose=False, level=1)
 
@@ -1230,3 +1230,32 @@ def _build_and_split_XYs_customized(dfTrain, features, shuffle_train, n_exogenou
     Ytrain = Ytrain[:nTrain]
 
     return Xtrain, Ytrain, Xval, Yval, Xtest, Ytest, indexTest
+
+
+def rescale(X_train, Y_train, X_val, Y_val, X_test):
+    # Pre- allochiamo la memoria per i valori di X e Y normalizzati
+
+    X_train_norm = np.zeros((X_train.shape[0], X_train.shape[1]))
+    X_val_norm = np.zeros((X_val.shape[0], X_val.shape[1]))
+    X_test_norm = np.zeros((X_test.shape[0], X_test.shape[1]))
+
+    # Associamo alla prima colonna i valori 0/1 per giorni feriali/festivi
+    X_train_norm[:, 0:3 ] = X_train[:, 0:3]
+    X_val_norm[:, 0:3] = X_val[:, 0:3]
+    X_test_norm[:, 0:3] = X_test[:, 0:3]
+
+    # Per tutte le altre colonne facciamo una normalizzazione column - based 
+    for i in range(X_train.shape[1] - 3):
+        scaler_x = StandardScaler()
+        scaler_x.fit(X_train[:, i+3].reshape(-1, 1))
+        X_train_norm[:, i+3] = scaler_x.transform(X_train[:, i+3].reshape(-1, 1)).reshape(-1)
+        X_val_norm[:, i+3] = scaler_x.transform(X_val[:, i+3].reshape(-1, 1)).reshape(- 1)
+        X_test_norm[:, i+3] = scaler_x.transform(X_test[:, i+3].reshape(-1, 1)).reshape(-1)
+
+    # Scaliamo i valori di y
+    scaler_y = StandardScaler()
+    scaler_y.fit(Y_train)
+    Y_train_norm = scaler_y.transform(Y_train)
+    Y_val_norm = scaler_y.transform(Y_val)
+
+    return X_train_norm, Y_train_norm, X_val_norm, Y_val_norm, X_test_norm
