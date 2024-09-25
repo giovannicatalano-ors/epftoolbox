@@ -497,7 +497,7 @@ def _build_space_customized(nlayer, data_augmentation, n_exogenous_inputs):
 
 
     # Defining the possible input features as hyperparameters
-    space['In: WorkingDay'] = hp.choice('In: Day', [False, True])
+    space['In: WorkingDay'] = hp.choice('In: WorkingDay', [False, True])
     space['In: Holiday'] = hp.choice('In: Holiday', [False, True])
     space['In: Covid'] = hp.choice('In: Covid', [False, True])
 
