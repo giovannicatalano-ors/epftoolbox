@@ -446,6 +446,8 @@ def _hyperopt_objective_customized(hyperparameters, trials, trials_file_path, ma
     return return_values
 
 
+
+
 def _build_space_customized(nlayer, data_augmentation, n_exogenous_inputs):
     """Function that generates the hyperparameter/feature search space 
     
@@ -511,6 +513,8 @@ def _build_space_customized(nlayer, data_augmentation, n_exogenous_inputs):
         space['In: Exog-' + str(n_ex) + ' D-7'] = hp.choice('In: Exog-' + str(n_ex) + ' D-7', [False, True])
     
     return space
+
+
 
 
 def hyperparameter_optimizer_customized(path_datasets_folder=os.path.join('.', 'datasets'), 
