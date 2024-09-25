@@ -321,6 +321,131 @@ def hyperparameter_optimizer(path_datasets_folder=os.path.join('.', 'datasets'),
     fmin(fmin_objective, space=space, algo=tpe.suggest, max_evals=max_evals, trials=trials, verbose=False)
 
 
+
+def _hyperopt_objective_customized(hyperparameters, trials, trials_file_path, max_evals, nlayers, dfTrain, dfTest, 
+                        shuffle_train, dataset, data_augmentation, 
+                        calibration_window, n_exogenous_inputs):
+    """Function that defines the hyperparameter optimization objective/loss
+    
+    This function receives as input a set of hyperparameters, trains a DNN using them,
+    and returns the performance of the DNN for the selected hyperparameters in a validation
+    dataset
+
+    Parameters
+    ----------
+    hyperparameters : dict
+        A dictionary provided by hyperopt indicating whether each hyperparameter/feature is selected
+    trials : hyperopt.Trials
+        The trials object that stores the hyperparameter optimization runs
+    trials_file_path : str
+        The path to store the trials object
+    max_evals : int
+        Maximum number of iterations for hyperparameter optimization
+    nlayers : int
+        Number of layers in the DNN model
+    dfTrain : pandas.DataFrame
+        Dataframe containing the training data
+    dfTrain : pandas.DataFrame
+        Dataframe containing the testing data
+    shuffle_train : bool
+        Boolean that selects whether the training and validation datasets are shuffled
+    dataset : TYPE
+        Description
+    data_augmentation : TYPE
+        Description
+    calibration_window : TYPE
+        Description
+    n_exogenous_inputs : TYPE
+        Description
+    
+    Returns
+    -------
+    dict
+        A dictionary summarizing the result of the hyperparameter run
+    """
+
+    # Re-defining the training dataset based on the calibration window. The calibration window
+    # can be given as an external parameter. If the value 0 is given, the calibration window
+    # is included as a hyperparameter to optimize
+    dfTrain_cw = dfTrain.loc[dfTrain.index[-1] - pd.Timedelta(weeks=52) * calibration_window +
+                             pd.Timedelta(hours=1):]
+
+    # Saving hyperoptimization state and printing message
+    pc.dump(trials, open(trials_file_path, "wb"))
+    if trials.losses()[0] is not None:
+
+        MAEVal = trials.best_trial['result']['MAE Val']
+        MAETest = trials.best_trial['result']['MAE Test']
+
+        sMAPEVal = trials.best_trial['result']['sMAPE Val']
+        sMAPETest = trials.best_trial['result']['sMAPE Test']
+        
+        print('\n\nTested {}/{} iterations.'.format(len(trials.losses()) - 1,
+              max_evals))
+
+        print('Best MAE - Validation Dataset')            
+        print("  MAE: {:.1f} | sMAPE: {:.2f} %".format(MAEVal, sMAPEVal))
+        print('\nBest MAE - Test Dataset')
+        print("  MAE: {:.1f} | sMAPE: {:.2f} %".format(MAETest, sMAPETest))
+
+    # Defining X,Y datasets
+    Xtrain, Ytrain, Xval, Yval, Xtest, Ytest, indexTest = \
+        _build_and_split_XYs_customized(dfTrain=dfTrain_cw, dfTest=dfTest, features=hyperparameters, 
+                          shuffle_train=shuffle_train, hyperoptimization=True,
+                          data_augmentation=data_augmentation, n_exogenous_inputs=n_exogenous_inputs)
+    
+    # If required, datasets are scaled
+    if hyperparameters['scaleX'] in ['Norm', 'Norm1', 'Std', 'Median', 'Invariant']:
+        [Xtrain, Xval, Xtest], _ = scaling([Xtrain, Xval, Xtest], hyperparameters['scaleX'])
+
+    if hyperparameters['scaleY'] in ['Norm', 'Norm1', 'Std', 'Median', 'Invariant']:
+        [Ytrain, Yval], scaler = scaling([Ytrain, Yval], hyperparameters['scaleY'])
+    else:
+        scaler = None
+
+    neurons = [int(hyperparameters['neurons' + str(k)]) for k in range(1, nlayers + 1)
+               if int(hyperparameters['neurons' + str(k)]) >= 50]
+        
+    np.random.seed(int(hyperparameters['seed']))
+
+    # Initialize model
+    forecaster = DNNModel(neurons=neurons, n_features=Xtrain.shape[-1], 
+                     dropout=hyperparameters['dropout'], batch_normalization=hyperparameters['batch_normalization'], 
+                     lr=hyperparameters['lr'], verbose=False,
+                     optimizer='adam', activation=hyperparameters['activation'],
+                     epochs_early_stopping=20, scaler=scaler, loss='mae',
+                     regularization=hyperparameters['reg']['val'], 
+                     lambda_reg=hyperparameters['reg']['lambda'],
+                     initializer=hyperparameters['init'])
+
+    forecaster.fit(Xtrain, Ytrain, Xval, Yval)
+
+    Yp = forecaster.predict(Xval).squeeze()
+    if hyperparameters['scaleY'] in ['Norm', 'Norm1', 'Std', 'Median', 'Invariant']:
+        Yval = scaler.inverse_transform(Yval)
+        Yp = scaler.inverse_transform(Yp)
+
+    mae_validation = np.mean(MAE(Yval, Yp))
+    smape_validation = np.mean(sMAPE(Yval, Yp)) * 100
+
+    # If required, datasets are normalized
+    Yp = forecaster.predict(Xtest).squeeze()
+    if hyperparameters['scaleY'] in ['Norm', 'Norm1', 'Std', 'Median', 'Invariant']:
+        Yp = scaler.inverse_transform(Yp).squeeze()
+
+    maeTest = np.mean(MAE(Ytest, Yp)) 
+    smape_test = np.mean(sMAPE(Ytest, Yp)) * 100
+
+    # The test dataset is returned for directly evaluating the models without recalibration
+    # while performing hyperopt. However, the hyperparameter search is performed using a validation
+    # dataset
+    return_values = {'loss': mae_validation, 'MAE Val': mae_validation, 'MAE Test': maeTest,
+                     'sMAPE Val': smape_validation, 'sMAPE Test': smape_test, 
+                     'status': STATUS_OK}
+                          
+    return return_values
+
+
 def _build_space_customized(nlayer, data_augmentation, n_exogenous_inputs):
     """Function that generates the hyperparameter/feature search space 
     
