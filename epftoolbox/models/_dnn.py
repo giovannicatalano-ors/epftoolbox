@@ -995,3 +995,238 @@ def _build_and_split_XYs(dfTrain, features, shuffle_train, n_exogenous_inputs, d
     Ytrain = Ytrain[:nTrain]
 
     return Xtrain, Ytrain, Xval, Yval, Xtest, Ytest, indexTest
+
+
+
+def _build_and_split_XYs_customized(dfTrain, features, shuffle_train, n_exogenous_inputs, dfTest=None, percentage_val=0.25,
+                        date_test=None, hyperoptimization=False, data_augmentation=False):
+    
+    """Method to buil the X,Y pairs for training/test DNN models using dataframes and a list of
+    the selected inputs
+    
+    Parameters
+    ----------
+    dfTrain : pandas.DataFrame
+        Pandas dataframe containing the training data
+    features : dict
+        Dictionary that define the selected input features. The dictionary is based on the results
+        of a hyperparameter/feature optimization run using the :class:`hyperparameter_optimizer`function
+    shuffle_train : bool
+        If true, the validation and training datasets are shuffled
+    n_exogenous_inputs : int
+        Number of exogenous inputs, i.e. inputs besides historical prices
+    dfTest : pandas.DataFrame
+        Pandas dataframe containing the test data
+    percentage_val : TYPE, optional
+        Percentage of data to be used for validation
+    date_test : None, optional
+        If given, then the test dataset is only built for that date
+    hyperoptimization : bool, optional
+        Description
+    data_augmentation : bool, optional
+        Description
+    
+    Returns
+    -------
+    list
+        A list ``[Xtrain, Ytrain, Xval, Yval, Xtest, Ytest, indexTest]`` that contains the X, Y pairs 
+        for training, validation, and testing, as well as the date index of the test dataset
+    """
+
+    # Checking that the first index in the dataframes corresponds with the hour 00:00 
+    if dfTrain.index[0].hour != 0 or dfTest.index[0].hour != 0:
+        print('Problem with the index')
+
+        
+    # Calculating the number of input features
+
+    n_features = features['In: WorkingDay'] + features['In: Holiday'] + features['In: Covid'] + \
+        24 * features['In: Price D-1'] + 24 * features['In: Price D-2'] + \
+        24 * features['In: Price D-3'] + 24 * features['In: Price D-7']
+
+    for n_ex in range(1, n_exogenous_inputs + 1):
+
+        n_features += 24 * features['In: Exog-' + str(n_ex) + ' D'] + \
+                        24 * features['In: Exog-' + str(n_ex) + ' D-1'] + \
+                        24 * features['In: Exog-' + str(n_ex) + ' D-7']
+
+    # Extracting the predicted dates for testing and training. We leave the first week of data
+    # out of the prediction as we the maximum lag can be one week
+    # In addition, if we allow training using all possible predictions within a day, we consider
+    # a indexTrain per starting hour of prediction
+    
+    # We define the potential time indexes that have to be forecasted in training
+    # and testing
+    indexTrain = dfTrain.loc[dfTrain.index[0] + pd.Timedelta(weeks=1):].index
+
+    if date_test is None:
+        indexTest = dfTest.loc[dfTest.index[0] + pd.Timedelta(weeks=1):].index
+    else:
+        indexTest = dfTest.loc[date_test:date_test + pd.Timedelta(hours=23)].index
+
+    # We extract the prediction dates/days. For the regular case, 
+    # it is just the index resample to 24 so we have a date per day.
+    # For the multiple datapoints per day, we have as many dates as indexs
+    if data_augmentation:
+        predDatesTrain = indexTrain.round('1h')
+    else:
+        predDatesTrain = indexTrain.round('1h')[::24]            
+            
+    predDatesTest = indexTest.round('1h')[::24]
+
+    # We create dataframe where the index is the time where a prediction is made
+    # and the columns is the horizons of the prediction
+    indexTrain = pd.DataFrame(index=predDatesTrain, columns=['h' + str(hour) for hour in range(24)])
+    indexTest = pd.DataFrame(index=predDatesTest, columns=['h' + str(hour) for hour in range(24)])
+    for hour in range(24):
+        indexTrain.loc[:, 'h' + str(hour)] = indexTrain.index + pd.Timedelta(hours=hour)
+        indexTest.loc[:, 'h' + str(hour)] = indexTest.index + pd.Timedelta(hours=hour)
+
+    # If we consider 24 predictions per day, the last 23 indexs cannot be used as there is not data
+    # for that horizon:
+    if data_augmentation:
+        indexTrain = indexTrain.iloc[:-23]
+    
+    # Preallocating in memory the X and Y arrays          
+    Xtrain = np.zeros([indexTrain.shape[0], n_features])
+    Xtest = np.zeros([indexTest.shape[0], n_features])
+    Ytrain = np.zeros([indexTrain.shape[0], 24])
+    Ytest = np.zeros([indexTest.shape[0], 24])
+
+    # Dummy 1
+    # Adding the working day/ non working day feature
+    working_days = [0, 1, 2, 3, 4]
+
+    indexFeatures = 0
+
+    # Giorno lavorativo -> valore unitario
+    if features['In: WorkingDay']:
+
+        index_train = [working_day in working_days for working_day in indexTrain.index.dayofweek]
+        index_test = [working_day in working_days for working_day in indexTest.index.dayofweek]
+        Xtrain[index_train, 0] = 1
+        Xtest[index_test, 0] = 1            
+        indexFeatures += 1
+
+    # Dummy 2
+    # Aggiungiamo le holidays
+    if features['In: Holiday']:
+            
+            import holidays
+
+            holidays_it = holidays.IT(years = [2020, 2021, 2022, 2023, 2024])
+
+            holiday_dates = pd.to_datetime(list(holidays_it.keys()))
+            
+            Xtrain[indexTrain.index.isin(holiday_dates), indexFeatures] = 1
+            Xtest[indexTest.index.isin(holiday_dates), indexFeatures] = 1
+            indexFeatures += 1
+
+    # Dummy 3
+    # Aggiungiamo la presenza del Covid
+
+    if features['In: Covid']:
+
+        import covid19dh
+
+        data, _ = covid19dh.covid19(country="Italy", verbose=False, level=1)
+
+        cols_to_retain = ["stay_home_restrictions"]
+
+        data["date"] = data["date"].dt.date
+        data.set_index("date", drop=True, inplace=True)
+        data = data[cols_to_retain]
+
+        # -2, 0, nan -> non ci sono restrizioni / 1, 2 -> restrizioni leggere, restrizioni pesanti
+
+        covid_dates = pd.to_datetime(list(data[data['stay_home_restrictions'].isin([1, 2])].index))
+        Xtrain[indexTrain.index.isin(covid_dates), indexFeatures] = 1
+        Xtest[indexTest.index.isin(covid_dates), indexFeatures] = 1
+        indexFeatures += 1
+    
+    # For each possible horizon
+    for hour in range(24):
+        # For each possible past day where prices can be included
+        for past_day in [1, 2, 3, 7]:
+
+            # We define the corresponding past time indexs 
+            pastIndexTrain = pd.to_datetime(indexTrain.loc[:, 'h' + str(hour)].values) - \
+                pd.Timedelta(hours=24 * past_day)
+            pastIndexTest = pd.to_datetime(indexTest.loc[:, 'h' + str(hour)].values) - \
+                pd.Timedelta(hours=24 * past_day)
+
+            # We include feature if feature selection indicates it
+            if features['In: Price D-' + str(past_day)]:
+                Xtrain[:, indexFeatures] = dfTrain.loc[pastIndexTrain, 'Price']
+                Xtest[:, indexFeatures] = dfTest.loc[pastIndexTest, 'Price']
+                indexFeatures += 1
+
+    
+    # For each possible horizon
+    for hour in range(24):
+        # For each possible past day where exogeneous can be included
+        for past_day in [1, 7]:
+
+            # We define the corresponding past time indexs 
+            pastIndexTrain = pd.to_datetime(indexTrain.loc[:, 'h' + str(hour)].values) - \
+                pd.Timedelta(hours=24 * past_day)
+            pastIndexTest = pd.to_datetime(indexTest.loc[:, 'h' + str(hour)].values) - \
+                pd.Timedelta(hours=24 * past_day)
+
+            # For each of the exogenous inputs we include feature if feature selection indicates it
+            for exog in range(1, n_exogenous_inputs + 1):
+                if features['In: Exog-' + str(exog) + ' D-' + str(past_day)]:
+                    Xtrain[:, indexFeatures] = dfTrain.loc[pastIndexTrain, 'Exogenous ' + str(exog)]                    
+                    Xtest[:, indexFeatures] = dfTest.loc[pastIndexTest, 'Exogenous ' + str(exog)]
+                    indexFeatures += 1
+
+        # For each of the exogenous inputs we include feature if feature selection indicates it
+        for exog in range(1, n_exogenous_inputs + 1):
+            # Adding exogenous inputs at day D
+            if features['In: Exog-' + str(exog) + ' D']:
+                futureIndexTrain = pd.to_datetime(indexTrain.loc[:, 'h' + str(hour)].values)
+                futureIndexTest = pd.to_datetime(indexTest.loc[:, 'h' + str(hour)].values)
+
+                Xtrain[:, indexFeatures] = dfTrain.loc[futureIndexTrain, 'Exogenous ' + str(exog)]        
+                Xtest[:, indexFeatures] = dfTest.loc[futureIndexTest, 'Exogenous ' + str(exog)] 
+                indexFeatures += 1
+
+    # Extracting the predicted values Y
+    for hour in range(24):
+        futureIndexTrain = pd.to_datetime(indexTrain.loc[:, 'h' + str(hour)].values)
+        futureIndexTest = pd.to_datetime(indexTest.loc[:, 'h' + str(hour)].values)
+
+        Ytrain[:, hour] = dfTrain.loc[futureIndexTrain, 'Price']        
+        Ytest[:, hour] = dfTest.loc[futureIndexTest, 'Price'] 
+
+    # Redefining indexTest to return only the dates at which a prediction is made
+    indexTest = indexTest.index
+
+
+    if shuffle_train:
+        nVal = int(percentage_val * Xtrain.shape[0])
+
+        if hyperoptimization:
+            # We fixed the random shuffle index so that the validation dataset does not change during the
+            # hyperparameter optimization process
+            np.random.seed(7)
+
+        # We shuffle the data per week to avoid data contamination
+        index = np.arange(Xtrain.shape[0])
+        index_week = index[::7]
+        np.random.shuffle(index_week)
+        index_shuffle = [ind + i for ind in index_week for i in range(7) if ind + i in index]
+
+        Xtrain = Xtrain[index_shuffle]
+        Ytrain = Ytrain[index_shuffle]
+
+    else:
+        nVal = int(percentage_val * Xtrain.shape[0])
+    nTrain = Xtrain.shape[0] - nVal # complements nVal
+    
+    Xval = Xtrain[nTrain:] # last nVal obs
+    Xtrain = Xtrain[:nTrain] # first nTrain obs
+    Yval = Ytrain[nTrain:]
+    Ytrain = Ytrain[:nTrain]
+
+    return Xtrain, Ytrain, Xval, Yval, Xtest, Ytest, indexTest
