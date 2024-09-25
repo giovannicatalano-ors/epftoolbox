@@ -318,3 +318,183 @@ def hyperparameter_optimizer(path_datasets_folder=os.path.join('.', 'datasets'),
                              n_exogenous_inputs=n_exogenous_inputs)
 
     fmin(fmin_objective, space=space, algo=tpe.suggest, max_evals=max_evals, trials=trials, verbose=False)
+
+
+def _build_space_customized(nlayer, data_augmentation, n_exogenous_inputs):
+    """Function that generates the hyperparameter/feature search space 
+    
+    Parameters
+    ----------
+    nlayer : int
+        Number of layers of the DNN model
+    data_augmentation : bool
+        Boolean that selects whether augmenting data is considered
+    n_exogenous_inputs : int
+        Number of exogenous inputs in the market under study
+    
+    Returns
+    -------
+    dict
+        Dictionary defining the search space
+    """
+
+    # Defining the hyperparameter space. First the neural net hyperparameters,
+    # later the input features
+    space = {
+        'batch_normalization': hp.choice('batch_normalization', [False, True]),
+        'dropout': hp.uniform('dropout', 0, 1),
+        'lr': hp.loguniform('lr', np.log(5e-4), np.log(0.1)),
+        'seed': hp.quniform('seed', 1, 1000, 1),
+        'neurons1': hp.quniform('neurons1', 50, 500, 1),
+        'activation': hp.choice('activation', ["relu", "softplus", "tanh", 'selu',
+                                'LeakyReLU', 'PReLU', 'sigmoid']),
+        'init': hp.choice('init', ['Orthogonal', 'lecun_uniform', 'glorot_uniform',
+            'glorot_normal', 'he_uniform', 'he_normal']),
+        'reg': hp.choice('reg', [
+            {'val': None, 'lambda': 0},
+            {'val': 'l1', 'lambda': hp.loguniform('lambdal1', np.log(1e-5), np.log(1))}]),
+        'scaleX': hp.choice('scaleX', ['No', 'Norm', 'Norm1', 'Std',
+                                                   'Median', 'Invariant']),
+        'scaleY': hp.choice('scaleY', ['No', 'Norm', 'Norm1', 'Std',
+                                                   'Median', 'Invariant'])        
+    }
+
+    if nlayer >= 2:
+        space['neurons2'] = hp.quniform('neurons2', 25, 400, 1)
+    if nlayer >= 3:
+        space['neurons3'] = hp.quniform('neurons3', 25, 300, 1)
+    if nlayer >= 4:
+        space['neurons4'] = hp.quniform('neurons4', 25, 200, 1)
+    if nlayer >= 5:
+        space['neurons5'] = hp.quniform('neurons5', 25, 200, 1)
+
+
+    # Defining the possible input features as hyperparameters
+    space['In: WorkingDay'] = hp.choice('In: Day', [False, True])
+    space['In: Holiday'] = hp.choice('In: Holiday', [False, True])
+    space['In: Covid'] = hp.choice('In: Covid', [False, True])
+
+    space['In: Price D-1'] = hp.choice('In: Price D-1', [False, True])
+    space['In: Price D-2'] = hp.choice('In: Price D-2', [False, True])
+    space['In: Price D-3'] = hp.choice('In: Price D-3', [False, True])        
+    space['In: Price D-7'] = hp.choice('In: Price D-7', [False, True])
+
+    for n_ex in range(1, n_exogenous_inputs + 1):
+        space['In: Exog-' + str(n_ex) + ' D'] = hp.choice('In: Exog-' + str(n_ex) + ' D', [False, True])
+        space['In: Exog-' + str(n_ex) + ' D-1'] = hp.choice('In: Exog-' + str(n_ex) + ' D-1', [False, True])
+        space['In: Exog-' + str(n_ex) + ' D-7'] = hp.choice('In: Exog-' + str(n_ex) + ' D-7', [False, True])
+    
+    return space
+
+
+def hyperparameter_optimizer_customized(path_datasets_folder=os.path.join('.', 'datasets'), 
+                             path_hyperparameters_folder=os.path.join('.', 'experimental_files'), 
+                             new_hyperopt=1, max_evals=1500, nlayers=2, dataset='PJM', years_test=2, 
+                             calibration_window=4, shuffle_train=1, data_augmentation=0,
+                             experiment_id=None, begin_test_date=None, end_test_date=None):
+    
+    """Function to optimize the hyperparameters and input features of the DNN. An example on how to 
+    use this function is provided :ref:`here<dnnex1>`.
+    
+    Parameters
+    ----------
+    path_datasets_folder : str, optional
+        Path to read and store datasets.
+    
+    path_hyperparameters_folder : str, optional
+        Path to read and store trials files from hyperopt.
+    
+    new_hyperopt : bool, optional
+        Boolean that decides whether to start a new hyperparameter optimization or re-start an
+        existing one.
+    
+    max_evals : int, optional
+        Maximum number of iterations for hyperopt.
+    
+    nlayers : int, optional
+        Number of layers of the DNN model.
+    
+    dataset : str, optional
+        Name of the dataset/market under study. If it is one one of the standard markets, 
+        i.e. ``"PJM"``, ``"NP"``, ``"BE"``, ``"FR"``, or ``"DE"``, the dataset is automatically downloaded. If the name
+        is different, a dataset with a csv format should be place in the ``path_datasets_folder``.
+    
+    years_test : int, optional
+        Number of years (a year is 364 days) in the test dataset. It is only used if 
+        the arguments ``begin_test_date`` and ``end_test_date`` are not provided.
+    
+    calibration_window : int, optional
+        Calibration window used for training the models.
+    
+    shuffle_train : bool, optional
+        Boolean that selects whether the validation and training datasets
+        are shuffled. Based on empirical results, this configuration does not play a role
+        when selecting the hyperparameters and features. However, it is important when recalibrating
+        the DNN model.
+    
+    data_augmentation : bool, optional
+        Boolean that selects whether a data augmentation technique 
+        for DNNs is used. Based on empirical results, for some markets data augmentation might
+        improve forecasting accuracy at the expense of higher computational costs.
+    
+    experiment_id : None, optional
+        Unique identifier to save/read the trials file. If not
+        provided, the current date is used as identifier.
+    
+    begin_test_date : datetime/str, optional
+        Optional parameter to select the test dataset. Used in combination with the argument
+        ``end_test_date``. If either of them is not provided, the test dataset is built using the 
+        ``years_test`` argument. ``begin_test_date`` should either be a string with the following 
+        format ``"%d/%m/%Y %H:%M"``, or a datetime object.
+    
+    end_test_date : datetime/str, optional
+        Optional parameter to select the test dataset. Used in combination with the argument
+        ``begin_test_date``. If either of them is not provided, the test dataset is built using the 
+        ``years_test`` argument. ``end_test_date`` should either be a string with the following 
+        format ``"%d/%m/%Y %H:%M"``, or a datetime object.       
+    
+    """
+
+    # Checking if provided directory for hyperparameter exists and if not create it
+    if not os.path.exists(path_hyperparameters_folder):
+        os.makedirs(path_hyperparameters_folder)
+
+    if experiment_id is None:
+        experiment_id = datetime.now().strftime("%d-%m-%Y_%H:%M:%S")
+    else:
+        experiment_id = experiment_id
+
+    # Defining unique trials file name (this is an unique identifier)
+    trials_file_name = 'DNN_hyperparameters_nl' + str(nlayers) + '_dat' + str(dataset) + \
+                       '_YT' + str(years_test) + '_SF' * (shuffle_train) + \
+                       '_DA' * (data_augmentation) + '_CW' + str(calibration_window) + \
+                       '_' + str(experiment_id)
+
+    trials_file_path = os.path.join(path_hyperparameters_folder, trials_file_name)
+
+    # If hyperparameter optimization starts from scratch, new trials object is created. If not,
+    # we read existing trials object
+    if new_hyperopt:
+        trials = Trials()
+    else:
+        trials = pc.load(open(trials_file_path, "rb"))
+
+
+    # Generate training and test datasets
+    dfTrain, dfTest = read_data(dataset=dataset, years_test=years_test, path=path_datasets_folder,
+                                begin_test_date=begin_test_date, end_test_date=end_test_date)
+
+    n_exogenous_inputs = len(dfTrain.columns) - 1
+
+    # Build hyperparamerter search space. This includes hyperparameter and features
+    space = _build_space_customized(nlayers, data_augmentation, n_exogenous_inputs)
+
+
+    # Perform hyperparameter optimization
+    fmin_objective = partial(_hyperopt_objective, trials=trials, trials_file_path=trials_file_path, 
+                             max_evals=max_evals, nlayers=nlayers, dfTrain=dfTrain, dfTest=dfTest, 
+                             shuffle_train=shuffle_train, dataset=dataset, 
+                             data_augmentation=data_augmentation, calibration_window=calibration_window,
+                             n_exogenous_inputs=n_exogenous_inputs)
+
+    fmin(fmin_objective, space=space, algo=tpe.suggest, max_evals=max_evals, trials=trials, verbose=False)
