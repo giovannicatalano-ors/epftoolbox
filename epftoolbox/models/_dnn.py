@@ -1258,4 +1258,4 @@ def rescale(X_train, Y_train, X_val, Y_val, X_test):
     Y_train_norm = scaler_y.transform(Y_train)
     Y_val_norm = scaler_y.transform(Y_val)
 
-    return X_train_norm, Y_train_norm, X_val_norm, Y_val_norm, X_test_norm
+    return X_train_norm, Y_train_norm, X_val_norm, Y_val_norm, X_test_norm, scaler_y
