@@ -14,6 +14,7 @@ import pickle as pc
 from datetime import datetime
 from epftoolbox.models import DNNModel
 from epftoolbox.models._dnn import _build_and_split_XYs
+from epftoolbox.models import _build_and_split_XYs_customized
 from epftoolbox.data import scaling
 from epftoolbox.data import read_data
 from epftoolbox.evaluation import MAE, sMAPE
