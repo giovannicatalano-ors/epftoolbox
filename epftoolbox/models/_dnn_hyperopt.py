@@ -14,7 +14,7 @@ import pickle as pc
 from datetime import datetime
 from epftoolbox.models import DNNModel
 from epftoolbox.models._dnn import _build_and_split_XYs
-from epftoolbox.models import _build_and_split_XYs_customized
+from epftoolbox.models._dnn import _build_and_split_XYs_customized
 from epftoolbox.data import scaling
 from epftoolbox.data import read_data
 from epftoolbox.evaluation import MAE, sMAPE
@@ -319,7 +319,6 @@ def hyperparameter_optimizer(path_datasets_folder=os.path.join('.', 'datasets'),
                              n_exogenous_inputs=n_exogenous_inputs)
 
     fmin(fmin_objective, space=space, algo=tpe.suggest, max_evals=max_evals, trials=trials, verbose=False)
-
 
 
 def _hyperopt_objective_customized(hyperparameters, trials, trials_file_path, max_evals, nlayers, dfTrain, dfTest, 
