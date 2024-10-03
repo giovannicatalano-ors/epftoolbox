@@ -475,4 +475,51 @@ def evaluate_lear_in_test_dataset(path_datasets_folder=os.path.join('.', 'datase
     return forecast
 
 
+# Ignore convergence warnings from scikit-learn LASSO module
+@ignore_warnings(category=ConvergenceWarning)
+def recalibrate_customized(self, Xtrain, Ytrain):
+    """Function to recalibrate the LEAR model. 
+    
+    It uses a training (Xtrain, Ytrain) pair for recalibration
+    
+    Parameters
+    ----------
+    Xtrain : numpy.array
+        Input in training dataset. It should be of size *[n,m]* where *n* is the number of days
+        in the training dataset and *m* the number of input features
+    
+    Ytrain : numpy.array
+        Output in training dataset. It should be of size *[n,24]* where *n* is the number of days 
+        in the training dataset and 24 are the 24 prices of each day
+            
+    Returns
+    -------
+    numpy.array
+        The prediction of day-ahead prices after recalibrating the model        
+    
+    """
+
+    # # Applying Invariant, aka asinh-median transformation to the prices
+
+    # La trasformazione di tipo 'Invariant' è asinh o log -> Riscala tutti i valori di output
+    [Ytrain], self.scalerY = scaling([Ytrain], 'Invariant') 
+
+    # # Rescaling all inputs except dummies (7 last features) -> Le ultime 7 sono i giorni della settimana
+    [Xtrain_no_dummies], self.scalerX = scaling([Xtrain[:, :-18]], 'Invariant')
+    Xtrain[:, :-18] = Xtrain_no_dummies
+
+    self.models = {}
+    # Per ogni ora si allena un modello differente per fare le previsioni
+    for h in range(24):
+
+        # Estimating lambda hyperparameter using LARS 
+        param_model = LassoLarsIC(criterion='aic', max_iter=2500) # secondo il criterio informativo di Akaike
+        param = param_model.fit(Xtrain, Ytrain[:, h]).alpha_ 
+
+        # Re-calibrating LEAR using standard LASSO estimation technique
+        model = Lasso(max_iter=2500, alpha=param)
+        model.fit(Xtrain, Ytrain[:, h])
+
+        self.models[h] = model
+
 
