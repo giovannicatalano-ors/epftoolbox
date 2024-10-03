@@ -1043,8 +1043,8 @@ def _build_and_split_XYs_customized(dfTrain, features, shuffle_train, n_exogenou
     # Calculating the number of input features
 
     n_features = features['In: WorkingDay'] + features['In: Holiday'] + features['In: Covid'] + \
-        24 * features['In: Price D-1'] + 24 * features['In: Price D-2'] + \
-        24 * features['In: Price D-3'] + 24 * features['In: Price D-7']
+        24 * features['In: Price D-2'] + 24 * features['In: Price D-3'] + \
+        24 * features['In: Price D-4'] + 24 * features['In: Price D-7']
 
     for n_ex in range(1, n_exogenous_inputs + 1):
 
@@ -1147,7 +1147,7 @@ def _build_and_split_XYs_customized(dfTrain, features, shuffle_train, n_exogenou
     # For each possible horizon
     for hour in range(24):
         # For each possible past day where prices can be included
-        for past_day in [1, 2, 3, 7]:
+        for past_day in [ 2, 3, 4, 7]:
 
             # We define the corresponding past time indexs 
             pastIndexTrain = pd.to_datetime(indexTrain.loc[:, 'h' + str(hour)].values) - \

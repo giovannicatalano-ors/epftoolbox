@@ -72,9 +72,10 @@ def _build_space(nlayer, data_augmentation, n_exogenous_inputs):
 
     # Defining the possible input features as hyperparameters
     space['In: Day'] = hp.choice('In: Day', [False, True])
-    space['In: Price D-1'] = hp.choice('In: Price D-1', [False, True])
+    
     space['In: Price D-2'] = hp.choice('In: Price D-2', [False, True])
-    space['In: Price D-3'] = hp.choice('In: Price D-3', [False, True])        
+    space['In: Price D-3'] = hp.choice('In: Price D-3', [False, True])     
+    space['In: Price D-4'] = hp.choice('In: Price D-4', [False, True])   
     space['In: Price D-7'] = hp.choice('In: Price D-7', [False, True])
 
     for n_ex in range(1, n_exogenous_inputs + 1):
@@ -501,9 +502,10 @@ def _build_space_customized(nlayer, data_augmentation, n_exogenous_inputs):
     space['In: Holiday'] = hp.choice('In: Holiday', [False, True])
     space['In: Covid'] = hp.choice('In: Covid', [False, True])
 
-    space['In: Price D-1'] = hp.choice('In: Price D-1', [False, True])
+    
     space['In: Price D-2'] = hp.choice('In: Price D-2', [False, True])
-    space['In: Price D-3'] = hp.choice('In: Price D-3', [False, True])        
+    space['In: Price D-3'] = hp.choice('In: Price D-3', [False, True])    
+    space['In: Price D-4'] = hp.choice('In: Price D-4', [False, True])    
     space['In: Price D-7'] = hp.choice('In: Price D-7', [False, True])
 
     for n_ex in range(1, n_exogenous_inputs + 1):
